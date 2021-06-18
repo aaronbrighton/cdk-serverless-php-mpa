@@ -17,6 +17,7 @@
 /lib
 /test-reports/
 build/Release
+cdk.out
 coverage
 jspm_packages/
 junit.xml
@@ -29,6 +30,7 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 tsconfig.json
 yarn-debug.log*
+yarn-error.log
 yarn-error.log*
 !/.eslintrc.json
 !/.gitattributes
