@@ -8,6 +8,7 @@ import * as cloudfront from '@aws-cdk/aws-cloudfront';
 import * as cloudfront_origins from '@aws-cdk/aws-cloudfront-origins';
 import * as ec2 from '@aws-cdk/aws-ec2';
 import * as efs from '@aws-cdk/aws-efs';
+import * as iam from '@aws-cdk/aws-iam';
 import * as lambda from '@aws-cdk/aws-lambda';
 import * as rds from '@aws-cdk/aws-rds';
 import * as route53 from '@aws-cdk/aws-route53';
@@ -764,17 +765,33 @@ export class Cdn extends cdk.Construct {
     // It's important to ensure the assetsBucket can only be accessed from within the VPC, as an info leak from within the Lambda function could expose write
     // access to the S3 assetsBucket.
     if (propsWithDefaults.network) {
-      propsWithDefaults.network.vpc.addGatewayEndpoint('VpcS3Endpoint', {
+      const vpcS3Endpoint = propsWithDefaults.network.vpc.addGatewayEndpoint('VpcS3Endpoint', {
         service: ec2.GatewayVpcEndpointAwsService.S3,
       });
-      propsWithDefaults.permitAssetsBucketAccess && propsWithDefaults.code?.function.addEnvironment('ASSETS_BUCKET', this.assetsBucket.bucketName);
+
+      if (propsWithDefaults.permitAssetsBucketAccess && propsWithDefaults.code.function.role) {
+        propsWithDefaults.code?.function.addEnvironment('ASSETS_BUCKET', this.assetsBucket.bucketName);
+        this.assetsBucket.grantReadWrite(propsWithDefaults.code.function);
+        this.assetsBucket.grantPutAcl(propsWithDefaults.code.function);
+        this.assetsBucket.addToResourcePolicy(new iam.PolicyStatement({
+          principals: [new iam.ArnPrincipal(propsWithDefaults.code.function.role.roleArn)],
+          actions: ['s3:*'],
+          effect: iam.Effect.DENY,
+          resources: [this.assetsBucket.bucketArn, this.assetsBucket.arnForObjects('*')],
+          conditions: {
+            StringNotEquals: {
+              'aws:SourceVpce': vpcS3Endpoint.vpcEndpointId,
+              'aws:CalledViaLast': 'cloudformation.amazonaws.com',
+            },
+          },
+        }));
+      }
     }
 
     // Copy the public code and assets for the PHP app to the S3 bucket for more optimal serving of static assets via S3->CloudFront.
     new s3_deployment.BucketDeployment(this, 'AssetsDeployment', {
       sources: [s3_deployment.Source.asset(propsWithDefaults.code.src +
         (existsSync(propsWithDefaults.code.src+'public_html/') ? 'public_html/' : ''))],
-      destinationKeyPrefix: 'assets',
       destinationBucket: this.assetsBucket,
       cacheControl: [s3_deployment.CacheControl.fromString(propsWithDefaults.assetsCacheControl ?? 'no-cache')],
       memoryLimit: 1024,
@@ -801,9 +818,7 @@ export class Cdn extends cdk.Construct {
     this.distribution = new cloudfront.Distribution(this, 'CloudfrontDistribution', {
       defaultBehavior: {
         origin: new cloudfront_origins.OriginGroup({
-          primaryOrigin: new cloudfront_origins.S3Origin(this.assetsBucket, {
-            originPath: '/assets',
-          }),
+          primaryOrigin: new cloudfront_origins.S3Origin(this.assetsBucket),
           fallbackOrigin: cloudfrontDistributionHttpApiOrigin,
           fallbackStatusCodes: [403],
         }),
@@ -825,6 +840,10 @@ export class Cdn extends cdk.Construct {
       queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.all(),
     });
 
+    const cloudfrontFunction = new cloudfront.Function(this, 'CloudfrontFunction', {
+      code: cloudfront.FunctionCode.fromInline('function handler(event){event.request.headers[\'x-forwarded-host\']={value: event.request.headers.host.value};return  event.request;}'),
+    });
+
     // For any requests that could be deemed for dynamic pages, ensure they get routed to the HTTP API origin instead of S3.
     ['/', '*/', '*.php'].forEach(pathPattern =>
       this.distribution.addBehavior(pathPattern, cloudfrontDistributionHttpApiOrigin, {
@@ -832,6 +851,10 @@ export class Cdn extends cdk.Construct {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: this.cachePolicy,
         originRequestPolicy: this.apiOriginRequestPolicy,
+        functionAssociations: [{
+          function: cloudfrontFunction,
+          eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+        }],
       }),
     );
 
