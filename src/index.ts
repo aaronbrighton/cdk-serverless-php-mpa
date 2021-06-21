@@ -194,6 +194,25 @@ export interface CodeProps {
     * @default - "/tmp" (resolving to path -> "/mnt/$mountPoint/tmp").
     */
   readonly phpTempDir?: string;
+
+  /**
+    * In certain situations you may want to enable additional PHP extensions within the Bref runtime.  This can
+    * be achieved by specifying the additional Lambda layers and enabling within a php.ini file placed in your "src"
+    * directory just above your "public_html" directory, for example:
+    *
+    * Layers:
+    *
+    * additionalLayers: [ 'arn:aws:lambda:us-east-1:403367587399:layer:gd-php-80:10' ]
+    *
+    * Directories:
+    *
+    * src/public_html/
+    *
+    * src/app/php/conf.d/php.ini: extension=gd
+    *
+    * For more details: https://bref.sh/docs/environment/php.html#extensions
+    */
+  readonly additionalLayers?: string[];
 }
 
 /**
@@ -297,7 +316,7 @@ export interface CdnProps {
    *
    * By default, the only headers passed from the browser to the PHP MPA application are:
    *
-   * "Authorization" (also used by Cache-Key), "Content-Type", "Origin", "User-Agent"
+   * "Authorization" (also used by Cache-Key), "Content-Type", "Origin", "User-Agent", 'X-Forwarded-Host'
    *
    * Any "customHeaders" will be merged with these defaults.
    *
@@ -621,6 +640,15 @@ export class Code extends cdk.Construct {
     propsWithDefaults.databaseLoaderMessage && this.function.addEnvironment('RDS_LOADER_MESSAGE', propsWithDefaults.databaseLoaderMessage);
     propsWithDefaults.filesystem && this.function.addEnvironment('TMPDIR', '/mnt'+propsWithDefaults.filesystemMountPoint+propsWithDefaults.phpTempDir);
 
+    // Add additional layers to the Lambda function
+    if (propsWithDefaults.additionalLayers) {
+      propsWithDefaults.additionalLayers.forEach(layer => {
+        const splitLayer = layer.split(':');
+        const layerId = splitLayer[splitLayer.length-2].replace('-', '');
+        this.function.addLayers(lambda.LayerVersion.fromLayerVersionArn(this, layerId, layer));
+      });
+    }
+
     // If a Database resource is being used let's make sure our Lambda can reach it and has access to read from it's generated Secrets Manager secret.
     if (propsWithDefaults.database?.serverlessCluster.secret) {
       (propsWithDefaults.database?.serverlessCluster.node.findChild('SecurityGroup') as ec2.SecurityGroup).addIngressRule((this.function.node.findChild('SecurityGroup') as ec2.SecurityGroup), ec2.Port.tcp(3306), 'Allow MySQL connections from the MPA Lambda function');
@@ -808,7 +836,7 @@ export class Cdn extends cdk.Construct {
 
     this.cachePolicy = new cloudfront.CachePolicy(this, 'CloudfrontCachePolicyForApi', {
       cookieBehavior: cloudfront.CacheCookieBehavior.all(),
-      headerBehavior: cloudfront.CacheHeaderBehavior.allowList('Authorization', ...propsWithDefaults.customHeaders ?? []),
+      headerBehavior: cloudfront.CacheHeaderBehavior.allowList('Authorization', 'x-forwarded-host', ...propsWithDefaults.customHeaders ?? []),
       queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
       defaultTtl: cdk.Duration.seconds(0),
       enableAcceptEncodingBrotli: true,
@@ -836,7 +864,7 @@ export class Cdn extends cdk.Construct {
 
     this.apiOriginRequestPolicy = new cloudfront.OriginRequestPolicy(this, 'CloudfrontOriginRequestPolicyForApi', {
       cookieBehavior: cloudfront.OriginRequestCookieBehavior.all(),
-      headerBehavior: cloudfront.OriginRequestHeaderBehavior.allowList('Content-Type', 'Origin', 'User-Agent', ...propsWithDefaults.customHeaders ?? []),
+      headerBehavior: cloudfront.OriginRequestHeaderBehavior.allowList('Content-Type', 'Origin', 'User-Agent', 'x-forwarded-host', ...propsWithDefaults.customHeaders ?? []),
       queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.all(),
     });
 

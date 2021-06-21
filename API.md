@@ -87,6 +87,7 @@ new Code(scope: Construct, id: string, props: CodeProps)
 * **id** (<code>string</code>)  *No description*
 * **props** (<code>[CodeProps](#cdk-serverless-php-mpa-codeprops)</code>)  *No description*
   * **src** (<code>string</code>)  The path to the source code of your PHP multi-page application. 
+  * **additionalLayers** (<code>Array<string></code>)  In certain situations you may want to enable additional PHP extensions within the Bref runtime. __*Optional*__
   * **brefFpmLayerVersionArn** (<code>string</code>)  The ARN of the Lambda Layer version that contains the Bref PHP "FPM" runtime to use. __*Default*__: "arn:aws:lambda:us-east-1:209497400698:layer:php-80-fpm:9"
   * **buildWrapper** (<code>boolean</code>)  When set to true the Bref vendor dependencies are automatically packaged with your PHP multi-page application source code. __*Default*__: true
   * **buildWrapperVerbose** (<code>boolean</code>)  When set to true the Bref vendor dependencies are packaged with verbose output. __*Default*__: false
@@ -296,6 +297,7 @@ Construct properties for the PHP multi-page application code and runtime environ
 Name | Type | Description 
 -----|------|-------------
 **src**🔹 | <code>string</code> | The path to the source code of your PHP multi-page application.
+**additionalLayers**?🔹 | <code>Array<string></code> | In certain situations you may want to enable additional PHP extensions within the Bref runtime.<br/>__*Optional*__
 **brefFpmLayerVersionArn**?🔹 | <code>string</code> | The ARN of the Lambda Layer version that contains the Bref PHP "FPM" runtime to use.<br/>__*Default*__: "arn:aws:lambda:us-east-1:209497400698:layer:php-80-fpm:9"
 **buildWrapper**?🔹 | <code>boolean</code> | When set to true the Bref vendor dependencies are automatically packaged with your PHP multi-page application source code.<br/>__*Default*__: true
 **buildWrapperVerbose**?🔹 | <code>boolean</code> | When set to true the Bref vendor dependencies are packaged with verbose output.<br/>__*Default*__: false
